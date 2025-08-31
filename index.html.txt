@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Our Favorites</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        /* Hide the default file input button */
+        .file-input-wrapper input[type=file] {
+            display: none;
+        }
+
+        .file-input-label {
+            cursor: pointer;
+            padding: 8px 12px;
+            border-radius: 9999px;
+            background-color: #e5e7eb;
+            color: #4b5563;
+            font-weight: 500;
+            transition-property: background-color, color;
+            transition-duration: 200ms;
+        }
+
+        .file-input-label:hover {
+            background-color: #d1d5db;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="min-h-screen flex items-center justify-center p-4">
+        <div id="loading" class="text-gray-600 text-lg">
+            Loading...
+        </div>
+
+        <div id="app" class="hidden w-full max-w-4xl bg-white rounded-xl shadow-lg p-6 md:p-10">
+            <header class="text-center mb-8">
+                <h1 class="text-4xl font-bold text-gray-800 mb-2">Our Friends' Favorites</h1>
+                <p class="text-gray-500">Share your top picks with the group!</p>
+                <div class="mt-4 text-sm text-gray-500">
+                    Your User ID: <span id="userIdDisplay" class="font-mono text-gray-700 bg-gray-100 px-2 py-1 rounded-md text-xs">Loading...</span>
+                </div>
+            </header>
+
+            <!-- Navigation Buttons -->
+            <div class="flex justify-center mb-8 space-x-4">
+                <button id="showFormBtn" class="px-6 py-3 bg-blue-500 text-white rounded-full font-semibold shadow-md hover:bg-blue-600 transition-colors">
+                    Add Your Favorites
+                </button>
+                <button id="showGalleryBtn" class="px-6 py-3 bg-gray-200 text-gray-800 rounded-full font-semibold shadow-md hover:bg-gray-300 transition-colors">
+                    View All Entries
+                </button>
+            </div>
+
+            <!-- Submission Form -->
+            <div id="formSection" class="space-y-6">
+                <form id="favoritesForm" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Form fields will be dynamically generated here -->
+                </form>
+                <button id="submitBtn" class="w-full py-3 bg-green-500 text-white font-bold rounded-lg shadow-lg hover:bg-green-600 transition-colors">
+                    Submit My Favorites
+                </button>
+                <div id="messageBox" class="mt-4 p-4 text-center rounded-lg hidden"></div>
+            </div>
+
+            <!-- Gallery Section -->
+            <div id="gallerySection" class="hidden">
+                <div id="galleryContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <!-- Gallery cards will be dynamically rendered here -->
+                </div>
+                <div id="noEntriesMessage" class="hidden text-center text-gray-500 mt-8">
+                    No entries yet. Be the first to add your favorites!
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, setDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables provided by the Canvas environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        
+        let userId = null;
+
+        const loadingDiv = document.getElementById('loading');
+        const appDiv = document.getElementById('app');
+        const userIdDisplay = document.getElementById('userIdDisplay');
+        const favoritesForm = document.getElementById('favoritesForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const showFormBtn = document.getElementById('showFormBtn');
+        const showGalleryBtn = document.getElementById('showGalleryBtn');
+        const formSection = document.getElementById('formSection');
+        const gallerySection = document.getElementById('gallerySection');
+        const galleryContainer = document.getElementById('galleryContainer');
+        const messageBox = document.getElementById('messageBox');
+        const noEntriesMessage = document.getElementById('noEntriesMessage');
+
+        const QUESTIONS = [
+            "Favorite Movie",
+            "Favorite Actor",
+            "Favorite Actress",
+            "Favorite Series",
+            "Favorite Animated Film",
+            "Favorite Superhero",
+            "Favorite Genre",
+            "Favorite Fictional Character",
+            "Most Underrated Movie",
+            "Most Overrated Movie",
+            "Best Movie Soundtrack",
+            "A Movie Quote You Live By",
+            "Favorite Director"
+        ];
+        
+        const NAME_QUESTION = "Your Name";
+        const PROFILE_PHOTO_QUESTION = "Your Profile Photo";
+
+        // --- AUTHENTICATION & INITIALIZATION ---
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                userId = user.uid;
+                userIdDisplay.textContent = userId;
+                loadingDiv.classList.add('hidden');
+                appDiv.classList.remove('hidden');
+                setupApp();
+            } else {
+                try {
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (error) {
+                    console.error("Authentication error:", error);
+                    alert("Failed to authenticate. Please try again.");
+                }
+            }
+        });
+
+        function showMessage(text, isError = false) {
+            messageBox.textContent = text;
+            messageBox.classList.remove('hidden');
+            if (isError) {
+                messageBox.className = 'mt-4 p-4 text-center rounded-lg bg-red-100 text-red-700';
+            } else {
+                messageBox.className = 'mt-4 p-4 text-center rounded-lg bg-green-100 text-green-700';
+            }
+        }
+
+        function setupApp() {
+            renderForm();
+            setupFormSubmission();
+            setupEventListeners();
+            listenForFavorites();
+        }
+
+        function renderForm() {
+            favoritesForm.innerHTML = '';
+
+            // Render name and profile photo fields first
+            renderInputGroup(NAME_QUESTION, `e.g., Jane Doe`, 'text');
+            renderPhotoInput(PROFILE_PHOTO_QUESTION, 99); // Use a distinct index for the profile photo
+
+            // Render the rest of the questions
+            QUESTIONS.forEach((q, index) => {
+                renderInputGroup(q, `e.g., The Matrix`, 'text');
+                renderPhotoInput(`Photo for ${q}`, index);
+            });
+        }
+
+        function renderInputGroup(question, placeholder, inputType) {
+            const inputField = document.createElement('div');
+            inputField.className = 'flex flex-col';
+            
+            const label = document.createElement('label');
+            label.textContent = question;
+            label.setAttribute('for', `question-${question}`);
+            label.className = 'block text-sm font-medium text-gray-700 mb-1';
+
+            const input = document.createElement('input');
+            input.setAttribute('type', inputType);
+            input.setAttribute('id', `question-${question}`);
+            input.setAttribute('name', `q-${question}`);
+            input.className = 'mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500';
+            input.setAttribute('placeholder', placeholder);
+            
+            inputField.appendChild(label);
+            inputField.appendChild(input);
+            favoritesForm.appendChild(inputField);
+        }
+
+        function renderPhotoInput(question, index) {
+            const photoInputWrapper = document.createElement('div');
+            photoInputWrapper.className = 'mt-2 flex items-center space-x-2 col-span-1 md:col-span-1';
+            photoInputWrapper.innerHTML = `
+                <label for="photo-upload-${index}" class="file-input-label text-xs">
+                    Upload Photo
+                </label>
+                <input type="file" id="photo-upload-${index}" name="photo-${index}" accept="image/*" class="hidden">
+                <span id="photo-status-${index}" class="text-xs text-gray-500">No file chosen</span>
+            `;
+            favoritesForm.appendChild(photoInputWrapper);
+
+            document.getElementById(`photo-upload-${index}`).addEventListener('change', (e) => {
+                const statusSpan = document.getElementById(`photo-status-${index}`);
+                if (e.target.files.length > 0) {
+                    statusSpan.textContent = `${e.target.files[0].name} selected`;
+                } else {
+                    statusSpan.textContent = 'No file chosen';
+                }
+            });
+        }
+
+        // --- FIREBASE INTERACTION ---
+        async function saveFavorites(answers) {
+            try {
+                // We're saving the answers to a public collection so all users can see them.
+                // The document ID will be the user's ID to prevent multiple submissions.
+                const userDocRef = doc(db, `artifacts/${appId}/public/data/friend_favorites`, userId);
+                await setDoc(userDocRef, {
+                    answers,
+                    userId,
+                    timestamp: new Date()
+                }, { merge: true });
+                showMessage("Your favorites have been submitted!", false);
+                toggleView('gallery');
+            } catch (error) {
+                console.error("Error adding document:", error);
+                showMessage("Failed to submit. Please try again.", true);
+            }
+        }
+
+        function listenForFavorites() {
+            // We listen to the public collection to get all entries
+            const favoritesCollection = collection(db, `artifacts/${appId}/public/data/friend_favorites`);
+            onSnapshot(favoritesCollection, (snapshot) => {
+                const entries = [];
+                snapshot.forEach(doc => {
+                    entries.push(doc.data());
+                });
+                renderGallery(entries);
+            });
+        }
+
+        // --- UI & EVENT HANDLERS ---
+        function setupFormSubmission() {
+            submitBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const answers = {};
+                let isValid = true;
+                
+                // Get user name and profile photo
+                const nameInput = document.querySelector(`#question-${NAME_QUESTION}`);
+                const photoInput = document.querySelector(`#photo-upload-99`);
+                
+                answers[NAME_QUESTION] = nameInput.value.trim();
+                answers[PROFILE_PHOTO_QUESTION] = photoInput.files.length > 0 ? 'photo_uploaded' : 'no_photo';
+
+                if (answers[NAME_QUESTION] === '') {
+                    isValid = false;
+                }
+
+                // Get data from form and build the answers object
+                QUESTIONS.forEach((q, index) => {
+                    const textInput = document.querySelector(`#question-${q}`);
+                    const photoInput = document.querySelector(`#photo-upload-${index}`);
+                    const textValue = textInput.value.trim();
+                    const photoSelected = photoInput.files.length > 0;
+
+                    answers[q] = {
+                        text: textValue,
+                        photo: photoSelected ? 'photo_uploaded' : 'no_photo' // Placeholder logic
+                    };
+                });
+
+                if (!isValid) {
+                    showMessage("Please fill out your name before submitting.", true);
+                    return;
+                }
+
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Submitting...';
+                await saveFavorites(answers);
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Submit My Favorites';
+                favoritesForm.reset();
+            });
+        }
+
+        function renderGallery(entries) {
+            galleryContainer.innerHTML = '';
+            if (entries.length === 0) {
+                noEntriesMessage.classList.remove('hidden');
+            } else {
+                noEntriesMessage.classList.add('hidden');
+                entries.sort((a, b) => b.timestamp - a.timestamp); // Sort by most recent
+                entries.forEach(entry => {
+                    const card = document.createElement('div');
+                    card.className = 'bg-white rounded-lg shadow-md overflow-hidden p-6';
+
+                    const profilePhotoUrl = entry.answers[PROFILE_PHOTO_QUESTION] === 'photo_uploaded' 
+                        ? `https://placehold.co/100x100/3b82f6/ffffff?text=${encodeURIComponent(entry.answers[NAME_QUESTION].charAt(0))}`
+                        : `https://placehold.co/100x100/9ca3af/ffffff?text=N/A`;
+
+                    let contentHtml = `
+                        <div class="flex items-center space-x-4 mb-4">
+                            <img src="${profilePhotoUrl}" alt="Profile Photo" class="w-12 h-12 rounded-full object-cover">
+                            <div>
+                                <h3 class="font-bold text-gray-800 text-lg">${entry.answers[NAME_QUESTION] || 'Anonymous'}</h3>
+                                <p class="text-sm text-gray-500">User ID: <span class="font-mono text-xs">${entry.userId.substring(0, 8)}...</span></p>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Loop through the answers and display each one with its photo placeholder
+                    QUESTIONS.forEach(key => {
+                        const answer = entry.answers[key];
+                        if (answer && (answer.text || answer.photo === 'photo_uploaded')) {
+                             const photoUrl = answer.photo === 'photo_uploaded' 
+                            ? `https://placehold.co/400x300/a855f7/ffffff?text=${encodeURIComponent(key)}`
+                            : '';
+
+                            contentHtml += `
+                                <div class="mb-4">
+                                    <p class="text-sm font-semibold text-gray-600">${key}:</p>
+                                    <p class="text-base text-gray-800">${answer.text || 'N/A'}</p>
+                                    ${photoUrl ? `<img src="${photoUrl}" alt="${key}" class="w-full h-auto object-cover rounded-md mt-2">` : ''}
+                                </div>
+                            `;
+                        }
+                    });
+
+                    card.innerHTML = contentHtml;
+                    galleryContainer.appendChild(card);
+                });
+            }
+        }
+
+        function toggleView(view) {
+            if (view === 'form') {
+                formSection.classList.remove('hidden');
+                gallerySection.classList.add('hidden');
+                showFormBtn.classList.add('bg-blue-500', 'text-white');
+                showFormBtn.classList.remove('bg-gray-200', 'text-gray-800');
+                showGalleryBtn.classList.add('bg-gray-200', 'text-gray-800');
+                showGalleryBtn.classList.remove('bg-blue-500', 'text-white');
+            } else {
+                formSection.classList.add('hidden');
+                gallerySection.classList.remove('hidden');
+                showGalleryBtn.classList.add('bg-blue-500', 'text-white');
+                showGalleryBtn.classList.remove('bg-gray-200', 'text-gray-800');
+                showFormBtn.classList.add('bg-gray-200', 'text-gray-800');
+                showFormBtn.classList.remove('bg-blue-500', 'text-white');
+            }
+            messageBox.classList.add('hidden');
+        }
+
+        function setupEventListeners() {
+            showFormBtn.addEventListener('click', () => toggleView('form'));
+            showGalleryBtn.addEventListener('click', () => toggleView('gallery'));
+        }
+    </script>
+</body>
+</html>
