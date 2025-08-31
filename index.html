@@ -133,6 +133,11 @@
         const NAME_QUESTION = "Your Name";
         const PROFILE_PHOTO_QUESTION = "Your Profile Photo";
 
+        // Helper function to create a sanitized ID from a question string
+        function getQuestionSlug(question) {
+            return question.toLowerCase().replace(/[\s\W]+/g, '-');
+        }
+
         // --- AUTHENTICATION & INITIALIZATION ---
         onAuthStateChanged(auth, async (user) => {
             if (user) {
@@ -150,7 +155,8 @@
                     }
                 } catch (error) {
                     console.error("Authentication error:", error);
-                    alert("Failed to authenticate. Please try again.");
+                    // Use a custom UI element instead of alert
+                    showMessage("Failed to authenticate. Please try again.", true);
                 }
             }
         });
@@ -177,28 +183,29 @@
 
             // Render name and profile photo fields first
             renderInputGroup(NAME_QUESTION, `e.g., Jane Doe`, 'text');
-            renderPhotoInput(PROFILE_PHOTO_QUESTION, 99); // Use a distinct index for the profile photo
+            renderPhotoInput(PROFILE_PHOTO_QUESTION);
 
             // Render the rest of the questions
-            QUESTIONS.forEach((q, index) => {
+            QUESTIONS.forEach((q) => {
                 renderInputGroup(q, `e.g., The Matrix`, 'text');
-                renderPhotoInput(`Photo for ${q}`, index);
+                renderPhotoInput(`Photo for ${q}`);
             });
         }
 
         function renderInputGroup(question, placeholder, inputType) {
+            const id = getQuestionSlug(question);
             const inputField = document.createElement('div');
             inputField.className = 'flex flex-col';
             
             const label = document.createElement('label');
             label.textContent = question;
-            label.setAttribute('for', `question-${question}`);
+            label.setAttribute('for', id);
             label.className = 'block text-sm font-medium text-gray-700 mb-1';
 
             const input = document.createElement('input');
             input.setAttribute('type', inputType);
-            input.setAttribute('id', `question-${question}`);
-            input.setAttribute('name', `q-${question}`);
+            input.setAttribute('id', id);
+            input.setAttribute('name', `q-${id}`);
             input.className = 'mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500';
             input.setAttribute('placeholder', placeholder);
             
@@ -207,20 +214,21 @@
             favoritesForm.appendChild(inputField);
         }
 
-        function renderPhotoInput(question, index) {
+        function renderPhotoInput(question) {
+            const id = getQuestionSlug(question);
             const photoInputWrapper = document.createElement('div');
             photoInputWrapper.className = 'mt-2 flex items-center space-x-2 col-span-1 md:col-span-1';
             photoInputWrapper.innerHTML = `
-                <label for="photo-upload-${index}" class="file-input-label text-xs">
+                <label for="photo-upload-${id}" class="file-input-label text-xs">
                     Upload Photo
                 </label>
-                <input type="file" id="photo-upload-${index}" name="photo-${index}" accept="image/*" class="hidden">
-                <span id="photo-status-${index}" class="text-xs text-gray-500">No file chosen</span>
+                <input type="file" id="photo-upload-${id}" name="photo-${id}" accept="image/*" class="hidden">
+                <span id="photo-status-${id}" class="text-xs text-gray-500">No file chosen</span>
             `;
             favoritesForm.appendChild(photoInputWrapper);
 
-            document.getElementById(`photo-upload-${index}`).addEventListener('change', (e) => {
-                const statusSpan = document.getElementById(`photo-status-${index}`);
+            document.getElementById(`photo-upload-${id}`).addEventListener('change', (e) => {
+                const statusSpan = document.getElementById(`photo-status-${id}`);
                 if (e.target.files.length > 0) {
                     statusSpan.textContent = `${e.target.files[0].name} selected`;
                 } else {
@@ -268,8 +276,8 @@
                 let isValid = true;
                 
                 // Get user name and profile photo
-                const nameInput = document.querySelector(`#question-${NAME_QUESTION}`);
-                const photoInput = document.querySelector(`#photo-upload-99`);
+                const nameInput = document.querySelector(`#${getQuestionSlug(NAME_QUESTION)}`);
+                const photoInput = document.querySelector(`#photo-upload-${getQuestionSlug(PROFILE_PHOTO_QUESTION)}`);
                 
                 answers[NAME_QUESTION] = nameInput.value.trim();
                 answers[PROFILE_PHOTO_QUESTION] = photoInput.files.length > 0 ? 'photo_uploaded' : 'no_photo';
@@ -279,9 +287,9 @@
                 }
 
                 // Get data from form and build the answers object
-                QUESTIONS.forEach((q, index) => {
-                    const textInput = document.querySelector(`#question-${q}`);
-                    const photoInput = document.querySelector(`#photo-upload-${index}`);
+                QUESTIONS.forEach((q) => {
+                    const textInput = document.querySelector(`#${getQuestionSlug(q)}`);
+                    const photoInput = document.querySelector(`#photo-upload-${getQuestionSlug(`Photo for ${q}`)}`);
                     const textValue = textInput.value.trim();
                     const photoSelected = photoInput.files.length > 0;
 
